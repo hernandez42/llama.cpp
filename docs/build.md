@@ -213,6 +213,60 @@ GeForce RTX 3070      8.6
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="86;89"
 ```
 
+### Jetson / Tegra AGX Builds
+
+NVIDIA Jetson devices (AGX Xavier, Orin, Nano, NX) use integrated GPU architectures
+and unified memory. Building requires extra flags.
+
+#### 1. Set the correct CUDA architecture
+
+Jetson AGX Xavier uses **SM 72** (Volta). Other Jetson variants:
+- Orin series: SM 87 (Ampere)
+- Nano/TX1: SM 53 (Maxwell)
+
+```bash
+# Jetson AGX Xavier / SM72
+cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="72"
+```
+
+#### 2. Enable MMQ kernels (recommended for Jetson)
+
+Jetson GPUs lack dedicated int8 tensor cores. Force MMQ kernels for better
+compatibility and lower VRAM usage:
+
+```bash
+cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="72" -DGGML_CUDA_FORCE_MMQ=ON
+```
+
+#### 3. Disable VMM (required on most Jetson)
+
+The Virtual Memory Manager (VMM) used by llama.cpp conflicts with the
+Jetson unified memory model on AGX Xavier, causing `cuMemGetInfo` to
+silently return incorrect values. Always disable it:
+
+```bash
+# Jetson AGX Xavier — recommended build
+cmake -B build \
+  -DGGML_CUDA=ON \
+  -DCMAKE_CUDA_ARCHITECTURES="72" \
+  -DGGML_CUDA_FORCE_MMQ=ON \
+  -DGGML_CUDA_NO_VMM=ON
+
+cmake --build build --config Release -j$(nproc)
+```
+
+#### 4. Runtime notes
+
+- Set `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` to allow swapping to system RAM,
+  which is essential on Jetson devices where GPU and CPU share a single
+  memory pool (e.g. 16GB shared on AGX Xavier).
+- The `GGML_CUDA_FORCE_MMQ` flag disables FP16 cuBLAS matmul and uses
+  quantized custom MMQ kernels instead, which reduces GPU memory pressure
+  and avoids numerical overflow issues on Jetson.
+- Prompt processing throughput is lower than on desktop GPUs — this is
+  expected. Use `-ub` (user batch size) with small values (128-512) for
+  interactive use.
+
 ### Overriding the CUDA Version
 
 If you have multiple CUDA installations on your system and want to compile llama.cpp for a specific one, e.g. for CUDA 11.7 installed under `/opt/cuda-11.7`:
